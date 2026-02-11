@@ -40,7 +40,9 @@ This interaction forms the foundation of all Reinforcement Learning algorithms.
 | **Parameter** |** Details** |
 
 | Environment | Taxi-v3 (Gymnasium) |
+
 | Action Space | 6 discrete actions |
+
 | Termination | Episode ends after successful drop-off |
 
 ### Why Taxi-v3?
@@ -52,7 +54,7 @@ Taxi-v3 is a classic benchmark RL environment because:
 - It demonstrates illegal action penalties  
 - It encourages shortest-path optimization
 
-- ##  Environment Description
+  ##  Environment Description
 
 In Taxi-v3:
 
@@ -60,17 +62,19 @@ In Taxi-v3:
 - Transport them to the **correct destination**
 - Drop them off successfully
 
-- ### Reward Structure
+
+ ### Reward Structure
 
 - Successful Drop-off: **+20**
 - Illegal Pickup/Dropoff: **-10**
 - Every step taken: **-1**
 
-This reward system encourages:
+ This reward system encourages:
 
 - Efficiency  
 - Correct action selection  
 - Minimal steps  
+
 
 Reinforcement Learning algorithms aim to transform this random behavior into an optimal, reward-maximizing policy through experience and iterative improvement.
 
