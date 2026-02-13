@@ -3,14 +3,33 @@
 
 # In[1]:
 
+"""
+This module defines the reward calculation logic for
+the POC-01 Reinforcement Learning decision loop.
 
-# poc_01_decision_loop/reward.py
+The reward function abstracts the logic of assigning
+numerical rewards based on success or failure.
+"""
 
 
 def calculate_reward(is_success):
     """
-    Reward function abstraction.
+    Calculate reward based on success condition.
+
+    This function encapsulates reward assignment logic
+    so that it can be reused or modified independently
+    from the environment or agent
+
+    Args:
+        is_success (bool): Indicates whether the agent's
+                             action was successful.
+
+    Returns:
+        int:
+            +1 if success is True
+            -1 if success is False
     """
+    
     return 1 if is_success else -1
 
 

@@ -10,7 +10,17 @@ os.getcwd()
 
 # In[3]:
 
+"""
+This module orchestrates the interaction between:
+- RLAgent
+- Environment
 
+It simulates one complete episode consisting of:
+1. Environment state retrieval
+2. Agent action selection
+3. Environment response
+4. Reward update
+"""
 import sys
 import os
 
@@ -20,23 +30,48 @@ sys.path.append(os.path.abspath("."))  # if notebook is in root
 
 # In[6]:
 
-
-# poc_01_decision_loop/main.py
-
 from agent import RLAgent
 from environment import Environment
 
 
 def run_episode():
+
+    """
+    Execute one full reinforcement learning episode.
+
+    Flow:
+        - Initialize agent and environment
+        - Retrieve initial state
+        - Agent selects action
+        - Environment evaluates action
+        - Agent updates total reward
+
+    Returns:
+        dict: Summary of episode containing:
+            - state (int)
+            - action (int)
+            - reward (int)
+            - total_reward (int)
+    """
+
+    # Initialize agent and environment
     agent = RLAgent()
     env = Environment()
 
+     # Retrieve current environment state
     state = env.state
+
+    # Agent selects an action based on state
     action = agent.select_action(state)
+
+    # Environment processes the action
     _, reward, done = env.step(action)
 
+    # Update agent's accumulated reward
     agent.update_reward(reward)
 
+
+    # Return episode summary
     return {
         "state": state,
         "action": action,

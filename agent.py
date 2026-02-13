@@ -2,18 +2,26 @@
 # coding: utf-8
 
 # In[2]:
+"""
+This module defines the RLAgent class used in the
+POC-01 Reinforcement Learning decision loop.
 
+The agent is responsible for:
+- Selecting an action based on the current state
+- Maintaining and updating total accumulated reward
 
-# poc_01_decision_loop/agent.py
+"""
+
 
 import random
 
 
-class RLAgent:
-    def __init__(self):
+class RLAgent:        #A simple Reinforcement Learning agent.
+
+    def __init__(self):    #Initialize the agent.
         self.total_reward = 0
 
-    def select_action(self, state):
+    def select_action(self, state):        #Select an action based on the given state.
         """
         Select an action randomly for demonstration.
         """
