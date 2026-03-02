@@ -1,6 +1,4 @@
 """
-POC-03: BDD Step Definitions for MDP Modeling
-
 This file connects Gherkin feature scenarios
 to the TaxiMDP implementation.
 

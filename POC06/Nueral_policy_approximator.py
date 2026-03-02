@@ -1,9 +1,9 @@
 """
 =============================================================================
- STOCK TRADING AGENT — RL with Neural Network Policy 
+ STOCK TRADING AGENT — RL with Neural Network Policy
  Framework : PyTorch
  Algorithm : REINFORCE with Value Baseline (Actor–Critic style)
- 
+
  Key Features
  ------------
  • Neural policy approximator (π(a|s))
@@ -21,12 +21,14 @@
 =============================================================================
 """
 
-import os, random, numpy as np
+import os
+import random
 
-from collections import deque       ## Fast append + pop operations.Tracking last 50 episode returns
+import numpy as np
+from collections import deque       ## Fast append + pop operations. Tracking last 50 episode returns
 
 import torch
-import torch.nn as nn               #Neural network module.
+import torch.nn as nn               # Neural network module.
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Categorical
@@ -48,39 +50,40 @@ class StockEnv:  # defining a custom reinforcement learning environment.
       [3] position      : 1 = holding stock, 0 = no position
       [4] unrealized_pnl: current % gain/loss if holding
     """
+
     STATE_DIM = 5   # State space is 5-dimensional continuous vector
     N_ACTIONS = 3   # Action space is discrete with 3 actions: 0=HOLD  1=BUY  2=SELL
 
-    def __init__(self, initial_cash=10_000, steps=120): # Each episode is 120 timesteps of simulated market.
+    def __init__(self, initial_cash=10_000, steps=120):  # Each episode is 120 timesteps of simulated market.
         """
         initial_cash : Starting capital
         steps        : Episode length (market timesteps)
         """
         self.initial_cash = initial_cash
-        self.steps        = steps
-        self.prices       = deque(maxlen=30)   # Stores last 30 prices. (used for RSI & moving average)
+        self.steps = steps
+        self.prices = deque(maxlen=30)   # Stores last 30 prices. (used for RSI & moving average)
         self.reset()            # Environment automatically initializes.
 
     # ==========================================================
     # MARKET GENERATOR (Trending GBM with Regime Switching)
     # ==========================================================
-    def _next_price(self):   
+    def _next_price(self):
         self.trend_steps += 1   # Track how long current trend lasts.
 
         # When trend duration expires → flip direction
         # Uptrend becomes downtrend and vice versa
-        if self.trend_steps >= self.trend_duration: 
-            self.trend          = -self.trend     
+        if self.trend_steps >= self.trend_duration:
+            self.trend = -self.trend
             self.trend_duration = np.random.randint(25, 60)
-            self.trend_steps    = 0
+            self.trend_steps = 0
 
         # Geometric Brownian Motion formula:
         # return = drift + volatility shock
-        ret = (self.trend - 0.5 * self.sigma**2) + self.sigma * np.random.randn()  
+        ret = (self.trend - 0.5 * self.sigma**2) + self.sigma * np.random.randn()
 
         # Exponential update (ensures price stays positive)
-        return max(self.price * np.exp(ret), 1.0)   
-    
+        return max(self.price * np.exp(ret), 1.0)
+
     # ==========================================================
     # RSI Indicator (Momentum strength)
     # ==========================================================
@@ -92,12 +95,13 @@ class StockEnv:  # defining a custom reinforcement learning environment.
         Near 0 → Oversold
         """
         p = list(self.prices)
-        if len(p) < w + 1: return 0.5   # Neutral if insufficient history
+        if len(p) < w + 1:
+            return 0.5   # Neutral if insufficient history
 
-        ch = np.diff(p[-(w+1):])
+        ch = np.diff(p[-(w + 1):])
 
-        g  = ch[ch > 0].mean() if (ch > 0).any() else 0.0
-        l  = -ch[ch < 0].mean() if (ch < 0).any() else 1e-9
+        g = ch[ch > 0].mean() if (ch > 0).any() else 0.0
+        l = -ch[ch < 0].mean() if (ch < 0).any() else 1e-9
         return float(np.clip(1 - 1 / (1 + g / (l + 1e-9)), 0, 1))
 
     # ==========================================================
@@ -109,16 +113,17 @@ class StockEnv:  # defining a custom reinforcement learning environment.
         Positive → Above MA (uptrend)
         Negative → Below MA (downtrend)
         """
-
         p = list(self.prices)
-        if len(p) < w: return 0.0
+        if len(p) < w:
+            return 0.0
 
         return float(np.clip((self.price / np.mean(p[-w:])) - 1, -0.15, 0.15) / 0.15)
+
     # ==========================================================
     # STATE REPRESENTATION
     # ==========================================================
     def _state(self):
-        p   = list(self.prices)
+        p = list(self.prices)
 
         # Short-term log return
         ret = np.log(p[-1] / (p[-2] + 1e-9)) if len(p) >= 2 else 0.0
@@ -127,10 +132,10 @@ class StockEnv:  # defining a custom reinforcement learning environment.
         unr = (self.price - self.buy_price) / self.buy_price if self.buy_price else 0.0
         return np.array([
             np.clip(ret, -0.1, 0.1) / 0.1,      # normalized return
-            self._rsi(),                        # RSI (0–1)
-            self._ma_ratio(),                   # MA signal
-            1.0 if self.shares > 0 else 0.0,    # position flag
-            np.clip(unr, -1.0, 1.0),            # unrealized gain/loss
+            self._rsi(),                         # RSI (0–1)
+            self._ma_ratio(),                    # MA signal
+            1.0 if self.shares > 0 else 0.0,     # position flag
+            np.clip(unr, -1.0, 1.0),             # unrealized gain/loss
         ], dtype=np.float32)
 
     # ==========================================================
@@ -141,31 +146,32 @@ class StockEnv:  # defining a custom reinforcement learning environment.
         Cooldown prevents over-trading.
         If cooldown active → only HOLD allowed.
         """
-        if self.cooldown > 0: return [0]
+        if self.cooldown > 0:
+            return [0]
 
         # If holding → can SELL
         # If flat → can BUY
         return [0, 2] if self.shares > 0 else [0, 1]
-    
+
     # ==========================================================
     # RESET ENVIRONMENT
     # ==========================================================
     def reset(self):
-        self.cash           = float(self.initial_cash)
-        self.shares         = 0.0
-        self.buy_price      = None
-        self.buy_step       = None
-        self.cooldown       = 0
-        self.step_n         = 0
+        self.cash = float(self.initial_cash)
+        self.shares = 0.0
+        self.buy_price = None
+        self.buy_step = None
+        self.cooldown = 0
+        self.step_n = 0
 
-         # Initial price and volatility
-        self.price          = 100.0
-        self.sigma          = 0.008
+        # Initial price and volatility
+        self.price = 100.0
+        self.sigma = 0.008
 
         # Random starting trend
-        self.trend          = np.random.choice([-0.003, 0.003])
+        self.trend = np.random.choice([-0.003, 0.003])
         self.trend_duration = np.random.randint(25, 60)
-        self.trend_steps    = 0
+        self.trend_steps = 0
         self.prices.clear()
 
         # Warm up indicators
@@ -179,7 +185,7 @@ class StockEnv:  # defining a custom reinforcement learning environment.
     # STEP FUNCTION (Core RL Interaction)
     # ==========================================================
     def step(self, action):
-        old_price  = self.price
+        old_price = self.price
         # Generate next market price
         self.price = self._next_price()
         self.prices.append(self.price)
@@ -190,43 +196,43 @@ class StockEnv:  # defining a custom reinforcement learning environment.
             action = 0
 
         traded, ttype = False, "HOLD"
-        reward        = 0.0
+        reward = 0.0
 
         # ------------------------------------------------------
         # BUY ACTION
         # ------------------------------------------------------
-        if action == 1 and self.cash > 1:            
-            
+        if action == 1 and self.cash > 1:
+
             # Invest 95% of cash (keep buffer)
-            spend          = self.cash * 0.95
-            self.shares    = spend / self.price
+            spend = self.cash * 0.95
+            self.shares = spend / self.price
 
             # Transaction cost included
-            self.cash     -= spend * 1.001
+            self.cash -= spend * 1.001
             self.buy_price = self.price
-            self.buy_step  = self.step_n
+            self.buy_step = self.step_n
 
             # Cooldown prevents rapid trading
-            self.cooldown  = 10                      # FIX: 3 → 10 steps
-            traded, ttype  = True, "BUY"
+            self.cooldown = 10                      # FIX: 3 → 10 steps
+            traded, ttype = True, "BUY"
 
             # Entry gives no reward
-            reward         = 0.0                     
+            reward = 0.0
 
         # ------------------------------------------------------
         # SELL ACTION
         # ------------------------------------------------------
         elif action == 2 and self.shares > 0:        # SELL
-            proceeds      = self.shares * self.price * 0.999
-            realized_pnl  = proceeds - (self.shares * self.buy_price)
+            proceeds = self.shares * self.price * 0.999
+            realized_pnl = proceeds - (self.shares * self.buy_price)
             hold_duration = self.step_n - self.buy_step + 1
 
-            self.cash    += proceeds
-            self.shares   = 0.0
+            self.cash += proceeds
+            self.shares = 0.0
             self.buy_price = None
-            self.buy_step  = None
-            self.cooldown  = 10
-            traded, ttype  = True, "SELL"
+            self.buy_step = None
+            self.cooldown = 10
+            traded, ttype = True, "SELL"
 
             # Reward = realized P&L, scaled up for longer holds
             # This teaches: "hold profitable positions longer"
@@ -282,6 +288,7 @@ class PolicyNetwork(nn.Module):
         Logits are converted to probabilities internally
         using a Categorical distribution.
     """
+
     def __init__(self, state_dim=5, hidden=128, n_actions=3):
         super().__init__()
 
@@ -317,9 +324,8 @@ class PolicyNetwork(nn.Module):
                 nn.init.xavier_uniform_(m.weight)
                 nn.init.zeros_(m.bias)
 
-
     # Forward Pass
-    def forward(self, x): 
+    def forward(self, x):
         """
         Takes state tensor → outputs action logits.
 
@@ -350,22 +356,22 @@ class PolicyNetwork(nn.Module):
         """
 
         # Convert state (numpy array) → PyTorch tensor
-        s      = torch.FloatTensor(state)
+        s = torch.FloatTensor(state)
 
         # Get raw action scores
         logits = self.forward(s)
 
         # ACTION MASKING
-        # 
+        #
         # Some actions may be invalid (e.g., SELL when not holding)
         # We assign -inf to invalid actions so probability = 0
-        mask   = torch.full((self.n_actions,), float('-inf'))
+        mask = torch.full((self.n_actions,), float('-inf'))
 
-
-        for a in valid_actions: mask[a] = 0.0
+        for a in valid_actions:
+            mask[a] = 0.0
 
         # Create categorical distribution over actions
-        dist   = Categorical(logits=logits + mask)
+        dist = Categorical(logits=logits + mask)
 
         # Sample action from probability distribution
         action = dist.sample()
@@ -378,7 +384,7 @@ class PolicyNetwork(nn.Module):
 
 
 class ValueNetwork(nn.Module):
-    """""
+    """
     V(s) — State Value Function Approximator
 
     This network estimates:
@@ -398,7 +404,8 @@ class ValueNetwork(nn.Module):
     This reduces variance while keeping gradient unbiased.
 
     This network is called the "Critic".
-    """""
+    """
+
     def __init__(self, state_dim=5, hidden=128):
         super().__init__()
 
@@ -426,8 +433,9 @@ class ValueNetwork(nn.Module):
             if isinstance(m, nn.Linear):
                 nn.init.xavier_uniform_(m.weight)
                 nn.init.zeros_(m.bias)
+
     # Forward Pass
-    def forward(self, x): 
+    def forward(self, x):
         """
         Input:
             x → state tensor
@@ -460,18 +468,19 @@ class REINFORCETrainer:
     Policy update uses Advantage:
         Advantage = Return - V(s)
     """
+
     def __init__(self, policy, value,
                  policy_lr=3e-4, value_lr=8e-4,
                  gamma=0.99, entropy_coeff=0.03):
-        
+
         # Actor (Policy Network)
-        self.policy        = policy
+        self.policy = policy
 
         # Critic (Value Network)
-        self.value         = value
+        self.value = value
 
         # Discount factor (how much future rewards matter)
-        self.gamma         = gamma
+        self.gamma = gamma
 
         # Entropy coefficient (encourages exploration)
         self.entropy_coeff = entropy_coeff
@@ -481,17 +490,17 @@ class REINFORCETrainer:
         # Policy and value are trained separately
         # They have different learning rates
         self.policy_opt = optim.Adam(policy.parameters(), lr=policy_lr)
-        self.value_opt  = optim.Adam(value.parameters(),  lr=value_lr)
+        self.value_opt = optim.Adam(value.parameters(), lr=value_lr)
 
         # Learning rate scheduler
         # Every 100 updates → LR becomes half
         self.policy_sched = optim.lr_scheduler.StepLR(
             self.policy_opt, step_size=100, gamma=0.5)
-        self.value_sched  = optim.lr_scheduler.StepLR(
-            self.value_opt,  step_size=100, gamma=0.5)
+        self.value_sched = optim.lr_scheduler.StepLR(
+            self.value_opt, step_size=100, gamma=0.5)
 
         # For tracking training behavior
-        self.entropy_log   = []
+        self.entropy_log = []
         self.policy_losses = []
 
     # Compute Discounted Returns
@@ -525,13 +534,13 @@ class REINFORCETrainer:
     def update(self, states, rewards, log_probs, entropies):
 
         # 1 Compute discounted returns
-        returns    = self._returns(rewards)
+        returns = self._returns(rewards)
 
         # Convert states to tensor
-        states_t   = torch.FloatTensor(np.array(states))
+        states_t = torch.FloatTensor(np.array(states))
 
         # Get predicted state values V(s)
-        values     = self.value(states_t)
+        values = self.value(states_t)
 
         # 2 Compute Advantage
         # ------------------------------------------
@@ -546,8 +555,8 @@ class REINFORCETrainer:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         # Stack saved log probabilities and entropies
-        log_probs_t  = torch.stack(log_probs)
-        entropies_t  = torch.stack(entropies)
+        log_probs_t = torch.stack(log_probs)
+        entropies_t = torch.stack(entropies)
 
         # Track entropy for analysis
         self.entropy_log.append(entropies_t.mean().item())
@@ -609,7 +618,6 @@ class REINFORCETrainer:
 # =============================================================================
 
 def train(num_episodes=300, initial_cash=10_000):
-
     """
     Main training loop.
 
@@ -638,16 +646,16 @@ def train(num_episodes=300, initial_cash=10_000):
     print("=" * 66)
 
     # 1 Create Environment
-    env     = StockEnv(initial_cash=initial_cash, steps=120)   # 300→120
+    env = StockEnv(initial_cash=initial_cash, steps=120)   # 300→120
 
     # 2 Initialize Networks
     #
     # Policy (Actor) → outputs action probabilities
-    policy  = PolicyNetwork(state_dim=StockEnv.STATE_DIM, hidden=128,  # 256→128
-                            n_actions=StockEnv.N_ACTIONS)
-    
+    policy = PolicyNetwork(state_dim=StockEnv.STATE_DIM, hidden=128,  # 256→128
+                           n_actions=StockEnv.N_ACTIONS)
+
     # Value (Critic) → estimates V(s)
-    value   = ValueNetwork(state_dim=StockEnv.STATE_DIM, hidden=64)    # 128→64
+    value = ValueNetwork(state_dim=StockEnv.STATE_DIM, hidden=64)    # 128→64
 
     # Trainer handles policy + value updates
     trainer = REINFORCETrainer(policy, value, policy_lr=3e-4, value_lr=8e-4,
@@ -661,10 +669,10 @@ def train(num_episodes=300, initial_cash=10_000):
     for ep in range(1, num_episodes + 1):
 
         state = env.reset()     # Reset market
-        done  = False
+        done = False
 
         # Store full trajectory for this episode
-        ep_states, ep_rewards      = [], []
+        ep_states, ep_rewards = [], []
         ep_log_probs, ep_entropies = [], []
 
         # Track how often each action is used
@@ -690,10 +698,10 @@ def train(num_episodes=300, initial_cash=10_000):
 
             # Track action frequency
             action_counts[action] += 1
-            
+
             # Move to next state
             state = next_state
-        
+
         # 5 UPDATE NETWORKS (Learning Phase)
         trainer.update(ep_states, ep_rewards, ep_log_probs, ep_entropies)
 
@@ -702,24 +710,23 @@ def train(num_episodes=300, initial_cash=10_000):
         final = env.portfolio_vals[-1]
 
         # Percentage profit/loss
-        pnl   = (final - initial_cash) / initial_cash * 100
+        pnl = (final - initial_cash) / initial_cash * 100
         rewards_log.append(sum(ep_rewards))
         pnl_log.append(pnl)
         action_dist_log.append(action_counts)
 
-
         # Print progress every 50 episodes
         if ep % 50 == 0 or ep == 1:
-            avg_pnl  = np.mean(pnl_log[-50:])
+            avg_pnl = np.mean(pnl_log[-50:])
             win_rate = np.mean([1 if p > 0 else 0 for p in pnl_log[-50:]]) * 100
 
             # Action percentages
-            h_pct    = action_counts[0] / env.steps * 100
-            b_pct    = action_counts[1] / env.steps * 100
-            s_pct    = action_counts[2] / env.steps * 100
+            h_pct = action_counts[0] / env.steps * 100
+            b_pct = action_counts[1] / env.steps * 100
+            s_pct = action_counts[2] / env.steps * 100
 
             # Average entropy (exploration measure)
-            ent      = np.mean(trainer.entropy_log[-50:])
+            ent = np.mean(trainer.entropy_log[-50:])
             print(f"  Ep {ep:>3}/{num_episodes}  |  "
                   f"Avg P&L: {avg_pnl:+5.1f}%  |  "
                   f"Win: {win_rate:.0f}%  |  "
@@ -730,7 +737,7 @@ def train(num_episodes=300, initial_cash=10_000):
     print("=" * 66)
     print(f"  Best P&L        : {max(pnl_log):+.1f}%")
     print(f"  Avg P&L last 50 : {np.mean(pnl_log[-50:]):+.1f}%")
-    print(f"  Win rate last 50: {np.mean([1 if p>0 else 0 for p in pnl_log[-50:]])*100:.0f}%")
+    print(f"  Win rate last 50: {np.mean([1 if p > 0 else 0 for p in pnl_log[-50:]]) * 100:.0f}%")
     print("=" * 66)
     return policy, value, trainer, rewards_log, pnl_log, action_dist_log
 
@@ -740,7 +747,6 @@ def train(num_episodes=300, initial_cash=10_000):
 # =============================================================================
 
 def evaluate(policy: PolicyNetwork, initial_cash=10_000):
-
     """
     Evaluate trained policy in deterministic mode.
 
@@ -755,18 +761,17 @@ def evaluate(policy: PolicyNetwork, initial_cash=10_000):
     This simulates real-world deployment of the strategy.
     """
 
-
     print("\n  EVALUATION  (deterministic — argmax of π(a|s))")
     print("  " + "-" * 54)
 
     # 1 Create Fresh Environment
-    env       = StockEnv(initial_cash=initial_cash, steps=120)
-    state     = env.reset()
-    done      = False
+    env = StockEnv(initial_cash=initial_cash, steps=120)
+    state = env.reset()
+    done = False
 
     # Track portfolio and prices for comparison
     portfolio = [initial_cash]
-    prices    = [env.price]
+    prices = [env.price]
 
     # Trade tracking
     buys, sells, hold_durations = [], [], []
@@ -781,18 +786,19 @@ def evaluate(policy: PolicyNetwork, initial_cash=10_000):
         while not done:
 
             # Get valid actions (cooldown logic applied)
-            valid  = env.valid_actions()
+            valid = env.valid_actions()
 
             # Convert state to tensor
-            s  = torch.FloatTensor(state)
+            s = torch.FloatTensor(state)
 
             # Forward pass → logits
             logits = policy(s)
-            mask   = torch.full((StockEnv.N_ACTIONS,), float('-inf'))
-            for a in valid: mask[a] = 0.0
+            mask = torch.full((StockEnv.N_ACTIONS,), float('-inf'))
+            for a in valid:
+                mask[a] = 0.0
 
             # Convert logits → probabilities
-            probs  = F.softmax(logits + mask, dim=-1)
+            probs = F.softmax(logits + mask, dim=-1)
 
             # Deterministic action selection
             action = int(probs.argmax())
@@ -811,15 +817,15 @@ def evaluate(policy: PolicyNetwork, initial_cash=10_000):
 
                 # If SELL → compute holding duration
                 if info['trade'] == "SELL" and buy_step_log is not None:
-                    dur      = info['step'] - buy_step_log
+                    dur = info['step'] - buy_step_log
                     hold_durations.append(dur)
-                    pnl_str  = f"  held {dur} steps"
+                    pnl_str = f"  held {dur} steps"
 
                     # Print trade details
                 print(f"  Step {info['step']:>3} | {tag} @ ${info['price']:.2f}"
                       f"  | π: H={probs[0]:.2f} B={probs[1]:.2f} S={probs[2]:.2f}"
                       f"  | ${info['portfolio']:>10,.2f}{pnl_str}")
-                
+
                 # Track BUY/SELL steps
                 if info['trade'] == 'BUY':
                     buys.append(info['step'])
@@ -831,11 +837,11 @@ def evaluate(policy: PolicyNetwork, initial_cash=10_000):
     # Switch back to training mode
     policy.train()
 
-     # 3 Performance Metrics
-    final  = portfolio[-1]
+    # 3 Performance Metrics
+    final = portfolio[-1]
 
     # Strategy P&L
-    pnl    = (final - initial_cash) / initial_cash * 100
+    pnl = (final - initial_cash) / initial_cash * 100
 
     # Buy & Hold benchmark
     bh_pnl = (prices[-1] / prices[0] - 1) * 100
@@ -844,7 +850,7 @@ def evaluate(policy: PolicyNetwork, initial_cash=10_000):
     avg_hold = np.mean(hold_durations) if hold_durations else 0
 
     print(f"\n  Policy NN  : ${final:>10,.2f}  ({pnl:+.2f}%)")
-    print(f"  Buy & Hold : ${initial_cash*prices[-1]/prices[0]:>10,.2f}  ({bh_pnl:+.2f}%)")
+    print(f"  Buy & Hold : ${initial_cash * prices[-1] / prices[0]:>10,.2f}  ({bh_pnl:+.2f}%)")
     print(f"  Alpha      : {pnl - bh_pnl:+.2f}%")
     print(f"  Trades     : {len(buys)} BUY + {len(sells)} SELL")
     print(f"  Avg hold   : {avg_hold:.0f} steps per trade")
@@ -856,7 +862,6 @@ def evaluate(policy: PolicyNetwork, initial_cash=10_000):
 # =============================================================================
 
 if __name__ == "__main__":
-
     """
     Main execution block.
 
@@ -865,7 +870,7 @@ if __name__ == "__main__":
 
     It will NOT run if this file is imported as a module.
     """
-     
+
     np.random.seed(42)
     torch.manual_seed(42)
     random.seed(42)
@@ -900,11 +905,11 @@ if __name__ == "__main__":
     # state_dict() contains only learned parameters (not architecture).
 
     ##torch.save({'policy': policy.state_dict(), 'value': value.state_dict()},
-              ## os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                          ##  'reinforce_checkpoint.pt'))
-   ## print("  Checkpoint saved → reinforce_checkpoint.pt")
+    ##           os.path.join(os.path.dirname(os.path.abspath(__file__)),
+    ##                        'reinforce_checkpoint.pt'))
+    ## print("  Checkpoint saved → reinforce_checkpoint.pt")
 
-    #  Deterministic Evaluation
+    # Deterministic Evaluation
     # ==========================================================
     # Runs trained model using:
     #   action = argmax π(a|s)

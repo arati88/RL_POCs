@@ -3,7 +3,7 @@
 # Overview
 This POC demonstrates a proof-of-concept Reinforcement Learning agent for stock trading using policy gradient methods (REINFORCE) with a value baseline. The agent learns when to BUY, SELL, or HOLD based on a set of continuous market indicators.
 
-Key Features:
+# Key Features:
     Neural policy network π(a|s) to choose actions.
     Value network baseline to reduce gradient variance (Actor-Critic style).
     Handles continuous state space — Q-tables infeasible.
